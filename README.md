@@ -55,8 +55,8 @@ See `docker-compose.yaml` for complete list of configurable options.
 
 ## 📂 Volumes
 
-- `./rootfs/data/mealie` - Data storage
-- `./rootfs/data/db/postgres/mealie` - Data storage
+- `./volumes/data/mealie` - Data storage
+- `./volumes/data/db/postgres/mealie` - Data storage
 
 ## 🔐 Security
 
