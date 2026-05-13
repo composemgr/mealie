@@ -16,10 +16,14 @@ services:
     logging: *default-logging
     networks:
       - mealie
+      - proxy
+      - cloudflare
     ports:
       - "172.17.0.1:9000:9000"
     environment:
       TZ: ${TZ:-America/New_York}
+      CONTAINER_NAME: mealie-app
+      HOSTNAME: ${BASE_HOST_NAME:-$HOSTNAME}
       ALLOW_SIGNUP: "${ALLOW_SIGNUP:-true}"
       BASE_URL: https://${BASE_HOST_NAME:-$HOSTNAME}
       TOKEN_TIME: "720"
@@ -36,8 +40,8 @@ services:
       SMTP_FROM_NAME: ${APP_ORG_NAME:-Mealie}
       SMTP_AUTH_STRATEGY: TLS
       SMTP_FROM_EMAIL: ${EMAIL_SERVER_MAIL_FROM:-no-reply@example.com}
-      SMTP_USER: ${EMAIL_SERVER_USER:-}
-      SMTP_PASSWORD: ${EMAIL_SERVER_PASS:-}
+      SMTP_USER: ${EMAIL_SERVER_LOGIN_NAME:-}
+      SMTP_PASSWORD: ${EMAIL_SERVER_LOGIN_PASS:-}
     volumes:
       - ./volumes/data/mealie:/app/data
     depends_on:
@@ -48,6 +52,22 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    labels:
+      - 'traefik.enable=true'
+      - 'cloudflare.enable=true'
+      - 'traefik.docker.network=proxy'
+      - 'cloudflare.service=http://mealie-app:9000'
+      - 'cloudflare.hostname=mealie.${CLOUDFLARE_ZONE_NAME:-}'
+      - 'traefik.http.routers.mealie-app.entrypoints=http'
+      - 'traefik.http.routers.mealie-app-secure.tls=true'
+      - 'traefik.http.routers.mealie-app.rule=Host($(${BASE_HOST_NAME:-$HOSTNAME}))'
+      - 'traefik.http.middlewares.mealie-app-https-redirect.redirectscheme.scheme=https'
+      - 'traefik.http.routers.mealie-app.middlewares=mealie-app-https-redirect'
+      - 'traefik.http.routers.mealie-app-secure.entrypoints=https'
+      - 'traefik.http.routers.mealie-app-secure.rule=Host($(${BASE_HOST_NAME:-$HOSTNAME}))'
+      - 'traefik.http.routers.mealie-app-secure.tls.certresolver=cloudflare'
+      - 'traefik.http.routers.mealie-app-secure.service=mealie-app'
+      - 'traefik.http.services.mealie-app.loadbalancer.server.port=9000'
 
   mealie-db:
     image: postgres:latest
@@ -59,6 +79,7 @@ services:
       - mealie
     environment:
       TZ: ${TZ:-America/New_York}
+      CONTAINER_NAME: mealie-db
       POSTGRES_USER: ${DB_USER_NAME:-mealie}
       POSTGRES_PASSWORD: ${DB_USER_PASS:-changeme_db_password}
       POSTGRES_DB: ${DB_CREATE_DATABASE_NAME:-mealie}
@@ -74,3 +95,7 @@ networks:
   mealie:
     name: mealie
     external: false
+  proxy:
+    external: true
+  cloudflare:
+    external: true
