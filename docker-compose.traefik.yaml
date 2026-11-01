@@ -1,0 +1,95 @@
+# nginx proxy address - http://172.17.0.1:64250
+name: mealie
+x-logging: &default-logging
+  options:
+    max-size: '5m'
+    max-file: '1'
+  driver: json-file
+
+services:
+  app:
+    image: ghcr.io/mealie-recipes/mealie:latest
+    container_name: mealie-app
+    domainname: ${BASE_DOMAIN_NAME:-example.com}
+    hostname: ${BASE_HOST_NAME:-$HOSTNAME}
+    restart: always
+    pull_policy: always
+    logging: *default-logging
+    environment:
+      TZ: ${TZ:-America/New_York}
+      CONTAINER_NAME: mealie-app
+      HOSTNAME: ${BASE_HOST_NAME:-$HOSTNAME}
+      ALLOW_SIGNUP: "${ALLOW_SIGNUP:-true}"
+      BASE_URL: https://${BASE_HOST_NAME:-$HOSTNAME}
+      TOKEN_TIME: "720"
+      API_PORT: "9000"
+      API_DOCS: "false"
+      DB_ENGINE: postgres
+      POSTGRES_USER: ${DB_USER_NAME:-mealie}
+      POSTGRES_PASSWORD: ${DB_USER_PASS:-replace-with-a-random-password}
+      POSTGRES_SERVER: mealie-db
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${DB_CREATE_DATABASE_NAME:-mealie}
+      SMTP_HOST: ${EMAIL_SERVER_HOST:-172.17.0.1}
+      SMTP_PORT: ${EMAIL_SERVER_PORT:-587}
+      SMTP_FROM_NAME: ${APP_ORG_NAME:-Mealie}
+      SMTP_AUTH_STRATEGY: TLS
+      SMTP_FROM_EMAIL: ${EMAIL_SERVER_MAIL_FROM:-no-reply@${BASE_HOST_NAME:-$HOSTNAME}}
+      SMTP_USER: ${EMAIL_SERVER_LOGIN_NAME:-}
+      SMTP_PASSWORD: ${EMAIL_SERVER_LOGIN_PASS:-}
+    volumes:
+      - './volumes/data/mealie:/app/data'
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '--spider', 'http://localhost:9000/api/app/about']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    depends_on:
+      db:
+        condition: service_healthy
+    labels:
+      - 'traefik.enable=true'
+      - 'traefik.docker.network=traefik'
+      - 'traefik.http.routers.mealie-app.entrypoints=http'
+      - 'traefik.http.routers.mealie-app.rule=Host(`${BASE_HOST_NAME:-$HOSTNAME}`)'
+      - 'traefik.http.routers.mealie-app.middlewares=mealie-app-https-redirect'
+      - 'traefik.http.middlewares.mealie-app-https-redirect.redirectscheme.scheme=https'
+      - 'traefik.http.routers.mealie-app-secure.entrypoints=https'
+      - 'traefik.http.routers.mealie-app-secure.rule=Host(`${BASE_HOST_NAME:-$HOSTNAME}`)'
+      - 'traefik.http.routers.mealie-app-secure.tls.certresolver=cloudflare'
+      - 'traefik.http.routers.mealie-app-secure.service=mealie-app'
+      - 'traefik.http.services.mealie-app.loadbalancer.server.port=9000'
+    networks:
+      - mealie
+      - traefik
+
+  db:
+    image: postgres:latest
+    container_name: mealie-db
+    domainname: ${BASE_DOMAIN_NAME:-example.com}
+    hostname: mealie-db
+    restart: always
+    pull_policy: always
+    logging: *default-logging
+    environment:
+      TZ: ${TZ:-America/New_York}
+      CONTAINER_NAME: mealie-db
+      POSTGRES_USER: ${DB_USER_NAME:-mealie}
+      POSTGRES_PASSWORD: ${DB_USER_PASS:-replace-with-a-random-password}
+      POSTGRES_DB: ${DB_CREATE_DATABASE_NAME:-mealie}
+    volumes:
+      - './volumes/db/postgres/mealie:/var/lib/postgresql/data:z'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - mealie
+
+networks:
+  mealie:
+    name: mealie
+    external: false
+  traefik:
+    external: true

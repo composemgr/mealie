@@ -1,25 +1,21 @@
-# nginx proxy address - http://172.17.0.1:9000
+# nginx proxy address - http://172.17.0.1:64250
 
 name: mealie
 x-logging: &default-logging
-  driver: json-file
   options:
-    max-size: "5m"
-    max-file: "1"
+    max-size: '5m'
+    max-file: '1'
+  driver: json-file
 
 services:
-  mealie:
+  app:
     image: ghcr.io/mealie-recipes/mealie:latest
-    pull_policy: always
     container_name: mealie-app
+    domainname: ${BASE_DOMAIN_NAME:-example.com}
+    hostname: ${BASE_HOST_NAME:-$HOSTNAME}
     restart: always
+    pull_policy: always
     logging: *default-logging
-    networks:
-      - mealie
-      - proxy
-      - cloudflare
-    ports:
-      - "172.17.0.1:9000:9000"
     environment:
       TZ: ${TZ:-America/New_York}
       CONTAINER_NAME: mealie-app
@@ -31,7 +27,7 @@ services:
       API_DOCS: "false"
       DB_ENGINE: postgres
       POSTGRES_USER: ${DB_USER_NAME:-mealie}
-      POSTGRES_PASSWORD: ${DB_USER_PASS:-changeme_db_password}
+      POSTGRES_PASSWORD: ${DB_USER_PASS:-replace-with-a-random-password}
       POSTGRES_SERVER: mealie-db
       POSTGRES_PORT: "5432"
       POSTGRES_DB: ${DB_CREATE_DATABASE_NAME:-mealie}
@@ -39,63 +35,49 @@ services:
       SMTP_PORT: ${EMAIL_SERVER_PORT:-587}
       SMTP_FROM_NAME: ${APP_ORG_NAME:-Mealie}
       SMTP_AUTH_STRATEGY: TLS
-      SMTP_FROM_EMAIL: ${EMAIL_SERVER_MAIL_FROM:-no-reply@example.com}
+      SMTP_FROM_EMAIL: ${EMAIL_SERVER_MAIL_FROM:-no-reply@${BASE_HOST_NAME:-$HOSTNAME}}
       SMTP_USER: ${EMAIL_SERVER_LOGIN_NAME:-}
       SMTP_PASSWORD: ${EMAIL_SERVER_LOGIN_PASS:-}
+    ports:
+      - '172.17.0.1:64250:9000'
     volumes:
-      - ./volumes/data/mealie:/app/data
-    depends_on:
-      mealie-db:
-        condition: service_healthy
+      - './volumes/data/mealie:/app/data'
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9000/api/app/about"]
+      test: ['CMD', 'wget', '-q', '--spider', 'http://localhost:9000/api/app/about']
       interval: 30s
       timeout: 10s
       retries: 3
-    labels:
-      - 'traefik.enable=true'
-      - 'cloudflare.enable=true'
-      - 'traefik.docker.network=proxy'
-      - 'cloudflare.service=http://mealie-app:9000'
-      - 'cloudflare.hostname=mealie.${CLOUDFLARE_ZONE_NAME:-}'
-      - 'traefik.http.routers.mealie-app.entrypoints=http'
-      - 'traefik.http.routers.mealie-app-secure.tls=true'
-      - 'traefik.http.routers.mealie-app.rule=Host($(${BASE_HOST_NAME:-$HOSTNAME}))'
-      - 'traefik.http.middlewares.mealie-app-https-redirect.redirectscheme.scheme=https'
-      - 'traefik.http.routers.mealie-app.middlewares=mealie-app-https-redirect'
-      - 'traefik.http.routers.mealie-app-secure.entrypoints=https'
-      - 'traefik.http.routers.mealie-app-secure.rule=Host($(${BASE_HOST_NAME:-$HOSTNAME}))'
-      - 'traefik.http.routers.mealie-app-secure.tls.certresolver=cloudflare'
-      - 'traefik.http.routers.mealie-app-secure.service=mealie-app'
-      - 'traefik.http.services.mealie-app.loadbalancer.server.port=9000'
-
-  mealie-db:
-    image: postgres:latest
-    pull_policy: always
-    container_name: mealie-db
-    restart: always
-    logging: *default-logging
+    depends_on:
+      db:
+        condition: service_healthy
     networks:
       - mealie
+
+  db:
+    image: postgres:latest
+    container_name: mealie-db
+    domainname: ${BASE_DOMAIN_NAME:-example.com}
+    hostname: mealie-db
+    restart: always
+    pull_policy: always
+    logging: *default-logging
     environment:
       TZ: ${TZ:-America/New_York}
       CONTAINER_NAME: mealie-db
       POSTGRES_USER: ${DB_USER_NAME:-mealie}
-      POSTGRES_PASSWORD: ${DB_USER_PASS:-changeme_db_password}
+      POSTGRES_PASSWORD: ${DB_USER_PASS:-replace-with-a-random-password}
       POSTGRES_DB: ${DB_CREATE_DATABASE_NAME:-mealie}
     volumes:
-      - ./volumes/data/db/postgres/mealie:/var/lib/postgresql/data
+      - './volumes/db/postgres/mealie:/var/lib/postgresql/data:z'
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      test: ['CMD-SHELL', 'pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}']
       interval: 30s
       timeout: 10s
       retries: 3
+    networks:
+      - mealie
 
 networks:
   mealie:
     name: mealie
     external: false
-  proxy:
-    external: true
-  cloudflare:
-    external: true
